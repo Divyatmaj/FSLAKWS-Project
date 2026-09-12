@@ -1,0 +1,6 @@
+plixkws
+torch
+torchaudio
+soundfile
+numpy
+fire

@@ -1,0 +1,16 @@
+name: fslakws
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - plixkws
+      - torch
+      - torchaudio
+      - soundfile
+      - numpy
+      - fire
+ 

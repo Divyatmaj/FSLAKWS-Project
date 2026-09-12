@@ -1,0 +1,29 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# --- Virtual environments ---
+venv/
+.venv/
+env/
+ENV/
+
+# --- Downloaded PLiX model weights ---
+# These get pulled fresh by model.load()/smoke_test.py on first run.
+# No point committing large binary weights to the repo.
+models/
+*.pt
+*.pth
+*.ckpt
+
+#excess audio examples that I may not want to add
+
+
+# --- Editor / OS junk ---
+.DS_Store
+.vscode/
