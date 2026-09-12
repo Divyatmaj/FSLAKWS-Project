@@ -113,16 +113,27 @@ where — see Debugging below for the common ones.
 # quick sanity check (torch/MPS availability)
 python3 -m fslakws.cli info
 
-# real detection
+# real detection, folder-based
 python3 -m fslakws.cli detect \
     --examples_dir=examples \
     --query_path=query.wav
+
+# real detection, ad-hoc (no folder needed) -- pass each keyword as its
+# own flag with comma-separated .wav paths
+python3 -m fslakws.cli detect \
+    --query_path=query.wav \
+    --hello=ex1.wav,ex2.wav,ex3.wav \
+    --negative=neg1.wav,neg2.wav,neg3.wav
 ```
+
+Output is a color-coded table per keyword (score: green ≥0.8, yellow
+0.5-0.8, red <0.5) instead of plain text.
 
 Useful flags on `detect`:
 
 | Flag | Default | What it does |
 |---|---|---|
+| `--examples_dir` | none | folder-based support set (see Project structure) — omit this if using ad-hoc `--keyword=...` flags instead |
 | `--encoder_name` / `--language` | `base` / `multi` | which PLiX checkpoint to load (see PLiX's model table) |
 | `--threshold` | `0.5` | minimum confidence (0-1) a window's top class must reach to be reported |
 | `--hop_seconds` | `0.25` | how far the sliding window moves each step (smaller = finer localization, more compute) |
@@ -156,6 +167,17 @@ backbone was trained end-to-end with an episodic few-shot loss
 specifically to make the prototype-then-distance scheme work; generic
 pretrained embeddings aren't optimized for that geometry. Reverted — PLiX
 stays the backbone.
+
+## CLI UX improvements
+
+- **Colorful output.** `detect`/`info` now print via `rich` instead of
+  plain `print()` — a color-coded table per keyword (green/yellow/red by
+  score) instead of raw text lines.
+- **Ad-hoc audio paths.** You no longer have to pre-organize files into
+  `examples/<keyword>/`. Pass `--<keyword>=path1,path2,...` flags directly
+  and `detect` builds the same support set internally
+  (`detector.detect()` now accepts a `keyword_paths` dict directly, not
+  just `examples_dir`). Folder-based mode still works unchanged.
 
 ## Known limitations (honest, current state)
 
