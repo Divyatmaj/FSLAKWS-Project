@@ -1,4 +1,5 @@
-"""CLI entrypoint using python-fire."""
+
+"""CLI interface for FSLAKWS using Python Fire."""
 
 import fire
 
@@ -6,6 +7,7 @@ from . import detector
 
 
 class FSLAKWS:
+
     def detect(
         self,
         examples_dir: str,
@@ -15,8 +17,9 @@ class FSLAKWS:
         device: str = "cpu",
         threshold: float = 0.5,
         hop_seconds: float = 0.25,
+        smoothing_radius: int = 2,
     ):
-        """Detect keyword(s) in query_path using few-shot examples in examples_dir."""
+        """Detect keywords in a query audio file."""
         detections = detector.detect(
             examples_dir=examples_dir,
             query_path=query_path,
@@ -25,6 +28,7 @@ class FSLAKWS:
             device=device,
             threshold=threshold,
             hop_seconds=hop_seconds,
+            smoothing_radius=smoothing_radius,
         )
 
         if not detections:
@@ -32,18 +36,24 @@ class FSLAKWS:
             return
 
         by_keyword: dict[str, list[detector.Detection]] = {}
-        for d in detections:
-            by_keyword.setdefault(d.keyword, []).append(d)
+
+        for detection in detections:
+            by_keyword.setdefault(detection.keyword, []).append(detection)
 
         for keyword, hits in by_keyword.items():
             print(f"\nKeyword: {keyword}")
             print("Detected:")
-            for h in hits:
-                print(f"    {h.start:.1f} - {h.end:.1f} s   score={h.score:.2f}")
+
+            for hit in hits:
+                print(
+                    f"    {hit.start:.1f} - {hit.end:.1f} s   "
+                    f"score={hit.score:.2f}"
+                )
 
     def info(self):
-        """Quick sanity check that the package + torch are importable."""
+        """Show package and device information."""
         import torch
+
         print("fslakws V1")
         print(f"torch version: {torch.__version__}")
         print(f"MPS available: {torch.backends.mps.is_available()}")
@@ -55,3 +65,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

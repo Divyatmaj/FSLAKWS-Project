@@ -47,6 +47,9 @@ majority-vote smoothing across neighboring windows
     │                     (reduces flicker between near-identical,
     │                      heavily overlapping windows)
     ▼
+drop windows below --threshold confidence, and any window
+predicted as a background/negative class
+    ▼
 merge adjacent same-label windows into a single detection span
 ```
 
@@ -121,17 +124,41 @@ Useful flags on `detect`:
 | Flag | Default | What it does |
 |---|---|---|
 | `--encoder_name` / `--language` | `base` / `multi` | which PLiX checkpoint to load (see PLiX's model table) |
+| `--threshold` | `0.5` | minimum confidence (0-1) a window's top class must reach to be reported |
 | `--hop_seconds` | `0.25` | how far the sliding window moves each step (smaller = finer localization, more compute) |
 | `--smoothing_radius` | `2` | majority-vote smoothing over this many neighboring windows, to reduce flicker |
 | `--device` | `cpu` | try `mps` on Apple Silicon once `cpu` works |
 
-## Known limitations (honest, current state of V1)
+## Fixed since V1
 
-- **No real confidence score.** This build of `plixkws` returns only a
-  hard predicted class index, not per-class logits/distances — so every
-  detection currently prints `score=1.00`. The `threshold` flag is
-  effectively inert until we hook into PLiX's internal ProtoNet
-  distances directly. This is the main planned V2 improvement.
+- **Real per-class confidence scores.** `plixkws`'s own `ProtoNet.forward()`
+  (see its installed source) computes squared-distance-based logits
+  internally but only ever returns `torch.argmax(...)` — the confidence
+  never left the library, which is why V1 had to hardcode `score=1.00` on
+  every detection. Fixed by calling `fws_model.backbone` directly (a
+  public attribute) in `model.py` and reproducing PLiX's own
+  prototype-distance math ourselves, but keeping the softmax probabilities
+  instead of discarding them (`compute_prototypes` / `predict_from_prototypes`).
+  As a side effect, the support set is now embedded once per `detect()`
+  run instead of being re-embedded on every single sliding window.
+- **`--threshold` now actually filters.** It was accepted as a CLI/detector
+  parameter but never referenced anywhere inside `detect()` — dead code.
+  Now that scores are real, a window is only reported if its confidence
+  clears `--threshold`.
+
+We also tried swapping PLiX's backbone for general-purpose pretrained
+audio embeddings (LAION CLAP, WavLM mean-pooled) hoping for stronger
+separation between keywords. Tested directly against the real clips in
+`examples/` and `query.wav`: both scored almost every window close to
+50/50 and separated "hello" from "negative" worse than PLiX (prototype
+distance ~0.8-1.0 vs. PLiX's confident near-1.0 predictions). PLiX's
+backbone was trained end-to-end with an episodic few-shot loss
+specifically to make the prototype-then-distance scheme work; generic
+pretrained embeddings aren't optimized for that geometry. Reverted — PLiX
+stays the backbone.
+
+## Known limitations (honest, current state)
+
 - **Few-shot classification on short, heavily-overlapping windows is
   noisy.** With only 3-5 examples per class, predictions can flicker
   between windows that are 75%+ identical. `smoothing_radius` helps but
@@ -191,8 +218,6 @@ pick the same one your terminal uses (check with `which python3`), then
 
 ## Roadmap (post-V1)
 
-- Real per-class confidence scores by reaching into PLiX's ProtoNet
-  distances directly, instead of treating it as a black box.
 - Non-max suppression instead of simple adjacent-merge, for cleaner
   overlapping detections.
 - Benchmark CPU vs MPS inference latency/throughput on Apple Silicon.
