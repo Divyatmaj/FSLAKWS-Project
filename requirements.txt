@@ -4,3 +4,4 @@ torchaudio
 soundfile
 numpy
 fire
+rich

@@ -1,3 +1,4 @@
+
 """Detect keywords in long audio using sliding-window PLiX inference."""
 
 from dataclasses import dataclass
@@ -15,7 +16,11 @@ class Detection:
 
 
 def discover_keyword_examples(examples_dir: str) -> dict[str, list[str]]:
-    """Find .wav examples grouped by keyword folder."""
+    """
+    examples/keyword/*.wav -> {"keyword": [...]}
+
+    A background/negative class is recommended for real localization.
+    """
     import os
 
     keyword_paths: dict[str, list[str]] = {}
@@ -74,6 +79,7 @@ def detect(
     )
 
     query_waveform = audio_mod.preprocess(query_path)
+
     windows = audio_mod.make_windows(
         query_waveform,
         hop_seconds=hop_seconds,
@@ -97,6 +103,7 @@ def detect(
         raw_results.append(result)
 
     raw_labels = [result["label"] for result in raw_results]
+
     smoothed_labels = smooth_labels(
         raw_labels,
         radius=smoothing_radius,
@@ -130,7 +137,7 @@ def detect(
 
 
 def smooth_labels(labels: list[str], radius: int) -> list[str]:
-    """Apply majority-vote smoothing over neighboring window labels."""
+    """Apply majority-vote smoothing over neighboring windows."""
     if radius <= 0 or not labels:
         return labels
 
@@ -147,6 +154,7 @@ def smooth_labels(labels: list[str], radius: int) -> list[str]:
         counts = collections.Counter(neighborhood)
         top_label, top_count = counts.most_common(1)[0]
 
+        # Keep the original label when tied.
         if list(counts.values()).count(top_count) > 1:
             smoothed.append(labels[i])
         else:
@@ -187,4 +195,3 @@ def merge_adjacent(
             merged.append(det)
 
     return merged
-
