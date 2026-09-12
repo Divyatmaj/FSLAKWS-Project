@@ -1,115 +1,203 @@
 
-"""CLI interface for FSLAKWS using Python Fire."""
+"""Detect keywords in long audio using sliding-window PLiX inference."""
 
-import fire
+from dataclasses import dataclass
 
-from rich.console import Console
-from rich.table import Table
-
-from . import detector
+from . import audio as audio_mod
+from . import model as model_mod
 
 
-console = Console()
+@dataclass
+class Detection:
+    keyword: str
+    start: float
+    end: float
+    score: float
 
 
-def _score_color(score: float) -> str:
-    """Return a color based on confidence."""
-    if score >= 0.8:
-        return "green"
-    if score >= 0.5:
-        return "yellow"
-    return "red"
+def discover_keyword_examples(examples_dir: str) -> dict[str, list[str]]:
+    """Find .wav examples grouped by keyword folder."""
+    import os
+
+    keyword_paths: dict[str, list[str]] = {}
+
+    for keyword in sorted(os.listdir(examples_dir)):
+        kw_dir = os.path.join(examples_dir, keyword)
+
+        if not os.path.isdir(kw_dir):
+            continue
+
+        wavs = [
+            os.path.join(kw_dir, f)
+            for f in sorted(os.listdir(kw_dir))
+            if f.lower().endswith(".wav")
+        ]
+
+        if wavs:
+            keyword_paths[keyword] = wavs
+
+    return keyword_paths
 
 
-class FSLAKWS:
+def detect(
+    query_path: str,
+    examples_dir: str | None = None,
+    keyword_paths: dict[str, list[str]] | None = None,
+    encoder_name: str = "base",
+    language: str = "multi",
+    device: str = "cpu",
+    threshold: float = 0.5,
+    hop_seconds: float = 0.25,
+    smoothing_radius: int = 2,
+    background_labels: tuple[str, ...] = ("negative", "background"),
+) -> list[Detection]:
+    """
+    Run sliding-window keyword detection over a query audio file.
 
-    def detect(
-        self,
-        query_path: str,
-        examples_dir: str = None,
-        encoder_name: str = "base",
-        language: str = "multi",
-        device: str = "cpu",
-        threshold: float = 0.5,
-        hop_seconds: float = 0.25,
-        smoothing_radius: int = 2,
-        **keyword_examples,
-    ):
-        """
-        Detect keywords using examples_dir or ad-hoc keyword examples.
-        """
-        keyword_paths = None
+    Provide either examples_dir or keyword_paths.
+    keyword_paths takes priority if both are provided.
+    """
+    if keyword_paths is None:
+        if examples_dir is None:
+            raise ValueError("Provide either examples_dir or keyword_paths")
 
-        if keyword_examples:
-            keyword_paths = {
-                kw: [p.strip() for p in paths.split(",")]
-                for kw, paths in keyword_examples.items()
-            }
+        keyword_paths = discover_keyword_examples(examples_dir)
 
-        detections = detector.detect(
-            query_path=query_path,
-            examples_dir=examples_dir,
-            keyword_paths=keyword_paths,
-            encoder_name=encoder_name,
-            language=language,
+    if not keyword_paths:
+        raise ValueError(
+            f"No keyword example folders with .wav files found in {examples_dir}"
+        )
+
+    fws_model = model_mod.load_plix(
+        encoder_name=encoder_name,
+        language=language,
+        device=device,
+    )
+
+    support = model_mod.build_support_set(
+        keyword_paths,
+        device=device,
+    )
+
+    prototypes = model_mod.compute_prototypes(
+        fws_model,
+        support,
+    )
+
+    query_waveform = audio_mod.preprocess(query_path)
+
+    windows = audio_mod.make_windows(
+        query_waveform,
+        hop_seconds=hop_seconds,
+    )
+
+    raw_results: list[dict] = []
+
+    for window in windows:
+        query = model_mod.build_query_from_tensor(
+            window["audio"],
             device=device,
-            threshold=threshold,
-            hop_seconds=hop_seconds,
-            smoothing_radius=smoothing_radius,
         )
 
-        if not detections:
-            console.print("[yellow]No detections above threshold.[/yellow]")
-            return
+        result = model_mod.predict_from_prototypes(
+            fws_model,
+            prototypes,
+            query,
+            support["classes"],
+        )
 
-        by_keyword: dict[str, list[detector.Detection]] = {}
+        raw_results.append(result)
 
-        for detection in detections:
-            by_keyword.setdefault(detection.keyword, []).append(detection)
+    raw_labels = [result["label"] for result in raw_results]
 
-        for keyword, hits in by_keyword.items():
-            table = Table(
-                title=f"Keyword: {keyword}",
-                title_style="bold cyan",
+    smoothed_labels = smooth_labels(
+        raw_labels,
+        radius=smoothing_radius,
+    )
+
+    detections: list[Detection] = []
+
+    for window, label, result in zip(
+        windows,
+        smoothed_labels,
+        raw_results,
+    ):
+        if label in background_labels:
+            continue
+
+        score = result["scores"][support["classes"].index(label)]
+
+        if score < threshold:
+            continue
+
+        detections.append(
+            Detection(
+                keyword=label,
+                start=round(window["start"], 3),
+                end=round(window["end"], 3),
+                score=round(score, 4),
             )
-
-            table.add_column("Start (s)", justify="right")
-            table.add_column("End (s)", justify="right")
-            table.add_column("Score", justify="right")
-
-            for hit in hits:
-                color = _score_color(hit.score)
-
-                table.add_row(
-                    f"{hit.start:.1f}",
-                    f"{hit.end:.1f}",
-                    f"[{color}]{hit.score:.2f}[/{color}]",
-                )
-
-            console.print(table)
-
-    def info(self):
-        """Show package and device information."""
-        import torch
-
-        console.print("[bold cyan]fslakws V1[/bold cyan]")
-        console.print(
-            f"torch version: [green]{torch.__version__}[/green]"
         )
 
-        mps = torch.backends.mps.is_available()
-
-        console.print(
-            f"MPS available: [green]{mps}[/green]"
-            if mps
-            else f"MPS available: [yellow]{mps}[/yellow]"
-        )
+    return merge_adjacent(detections)
 
 
-def main():
-    fire.Fire(FSLAKWS)
+def smooth_labels(labels: list[str], radius: int) -> list[str]:
+    """Apply majority-vote smoothing over neighboring windows."""
+    if radius <= 0 or not labels:
+        return labels
+
+    import collections
+
+    smoothed = []
+    n = len(labels)
+
+    for i in range(n):
+        lo = max(0, i - radius)
+        hi = min(n, i + radius + 1)
+
+        neighborhood = labels[lo:hi]
+        counts = collections.Counter(neighborhood)
+        top_label, top_count = counts.most_common(1)[0]
+
+        # Keep the original label when tied.
+        if list(counts.values()).count(top_count) > 1:
+            smoothed.append(labels[i])
+        else:
+            smoothed.append(top_label)
+
+    return smoothed
 
 
-if __name__ == "__main__":
-    main()
+def merge_adjacent(
+    detections: list[Detection],
+    gap_tolerance: float = 0.3,
+) -> list[Detection]:
+    """Merge overlapping or nearby detections of the same keyword."""
+    if not detections:
+        return []
 
+    detections = sorted(
+        detections,
+        key=lambda d: (d.keyword, d.start),
+    )
+
+    merged: list[Detection] = [detections[0]]
+
+    for det in detections[1:]:
+        last = merged[-1]
+
+        same_keyword = det.keyword == last.keyword
+        close_enough = det.start <= last.end + gap_tolerance
+
+        if same_keyword and close_enough:
+            merged[-1] = Detection(
+                keyword=last.keyword,
+                start=last.start,
+                end=max(last.end, det.end),
+                score=max(last.score, det.score),
+            )
+        else:
+            merged.append(det)
+
+    return merged

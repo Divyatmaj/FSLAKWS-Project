@@ -1,16 +1,22 @@
-name: fslakws
-channels:
-  - pytorch
-  - conda-forge
-  - defaults
-dependencies:
-  - python=3.11
-  - pip
-  - pip:
-      - plixkws
-      - torch
-      - torchaudio
-      - soundfile
-      - numpy
-      - fire
- 
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fslakws"
+version = "0.1.0"
+dependencies = [
+    "plixkws",
+    "torch",
+    "torchaudio",
+    "soundfile",
+    "numpy",
+    "fire",
+    "rich",
+]
+
+[project.scripts]
+fslakws = "fslakws.cli:main"
+
+[tool.setuptools]
+packages = ["fslakws"]

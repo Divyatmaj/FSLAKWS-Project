@@ -25,8 +25,8 @@ class FSLAKWS:
 
     def detect(
         self,
-        query_path: str,
-        examples_dir: str = None,
+        query_path: str = "query.wav",
+        examples_dir: str = "examples",
         encoder_name: str = "base",
         language: str = "multi",
         device: str = "cpu",
@@ -35,9 +35,7 @@ class FSLAKWS:
         smoothing_radius: int = 2,
         **keyword_examples,
     ):
-        """
-        Detect keywords using examples_dir or ad-hoc keyword examples.
-        """
+        """Detect keywords using folder or ad-hoc examples."""
         keyword_paths = None
 
         if keyword_examples:
@@ -112,4 +110,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

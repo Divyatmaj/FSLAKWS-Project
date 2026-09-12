@@ -72,6 +72,7 @@ fslakws/
 ├── smoke_test.py       # verifies your environment/install works at all
 ├── requirements.txt
 ├── environment.yml
+├── pyproject.toml      # registers the `fslakws` console-script entry point
 └── .gitignore
 ```
 
@@ -92,6 +93,10 @@ source venv/bin/activate
 
 pip install -r requirements.txt
 # or: conda env create -f environment.yml && conda activate fslakws
+
+# optional: registers the `fslakws` command so you can drop the
+# `python -m` prefix everywhere below
+pip install -e .
 ```
 
 ## Verify your install
@@ -113,7 +118,10 @@ where — see Debugging below for the common ones.
 # quick sanity check (torch/MPS availability)
 python3 -m fslakws.cli info
 
-# real detection, folder-based
+# zero flags -- uses examples/ and query.wav in the current directory
+python3 -m fslakws.cli detect
+
+# real detection, folder-based, explicit paths
 python3 -m fslakws.cli detect \
     --examples_dir=examples \
     --query_path=query.wav
@@ -126,6 +134,9 @@ python3 -m fslakws.cli detect \
     --negative=neg1.wav,neg2.wav,neg3.wav
 ```
 
+If you ran `pip install -e .`, drop the `python -m fslakws.cli` prefix
+and just use `fslakws` (e.g. `fslakws detect`, `fslakws info`).
+
 Output is a color-coded table per keyword (score: green ≥0.8, yellow
 0.5-0.8, red <0.5) instead of plain text.
 
@@ -133,7 +144,8 @@ Useful flags on `detect`:
 
 | Flag | Default | What it does |
 |---|---|---|
-| `--examples_dir` | none | folder-based support set (see Project structure) — omit this if using ad-hoc `--keyword=...` flags instead |
+| `--query_path` | `query.wav` | the long recording to search |
+| `--examples_dir` | `examples` | folder-based support set (see Project structure) — omit this if using ad-hoc `--keyword=...` flags instead |
 | `--encoder_name` / `--language` | `base` / `multi` | which PLiX checkpoint to load (see PLiX's model table) |
 | `--threshold` | `0.5` | minimum confidence (0-1) a window's top class must reach to be reported |
 | `--hop_seconds` | `0.25` | how far the sliding window moves each step (smaller = finer localization, more compute) |
@@ -178,6 +190,11 @@ stays the backbone.
   and `detect` builds the same support set internally
   (`detector.detect()` now accepts a `keyword_paths` dict directly, not
   just `examples_dir`). Folder-based mode still works unchanged.
+- **Shorter command.** `query_path`/`examples_dir` default to `query.wav`/
+  `examples`, so `python -m fslakws.cli detect` works with zero flags.
+  `pyproject.toml` also registers a `fslakws` console-script entry point
+  (`pip install -e .`) so you can drop the `python -m fslakws.cli` prefix
+  entirely — e.g. `fslakws detect`.
 
 ## Known limitations (honest, current state)
 
