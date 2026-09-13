@@ -50,6 +50,7 @@ def detect(
     hop_seconds: float = 0.25,
     smoothing_radius: int = 2,
     batch_size: int = 8,
+    iou_threshold: float = 0.3,
     background_labels: tuple[str, ...] = ("negative", "background"),
 ) -> list[Detection]:
     """
@@ -142,7 +143,7 @@ def detect(
             )
         )
 
-    return merge_adjacent(detections)
+    return non_max_suppress(detections, iou_threshold=iou_threshold)
 
 
 def smooth_labels(labels: list[str], radius: int) -> list[str]:
@@ -172,35 +173,48 @@ def smooth_labels(labels: list[str], radius: int) -> list[str]:
     return smoothed
 
 
-def merge_adjacent(
+def _iou(a: Detection, b: Detection) -> float:
+    """Intersection-over-union of two detections' time spans."""
+    intersection = max(0.0, min(a.end, b.end) - max(a.start, b.start))
+    union = (a.end - a.start) + (b.end - b.start) - intersection
+
+    return intersection / union if union > 0 else 0.0
+
+
+def non_max_suppress(
     detections: list[Detection],
-    gap_tolerance: float = 0.3,
+    iou_threshold: float = 0.3,
 ) -> list[Detection]:
-    """Merge overlapping or nearby detections of the same keyword."""
+    """Greedy NMS per keyword: anchor each cluster on its top-score window."""
     if not detections:
         return []
 
-    detections = sorted(
-        detections,
-        key=lambda d: (d.keyword, d.start),
-    )
+    by_keyword: dict[str, list[Detection]] = {}
 
-    merged: list[Detection] = [detections[0]]
+    for det in detections:
+        by_keyword.setdefault(det.keyword, []).append(det)
 
-    for det in detections[1:]:
-        last = merged[-1]
+    kept: list[Detection] = []
 
-        same_keyword = det.keyword == last.keyword
-        close_enough = det.start <= last.end + gap_tolerance
+    for keyword, dets in by_keyword.items():
+        remaining = sorted(dets, key=lambda d: d.score, reverse=True)
 
-        if same_keyword and close_enough:
-            merged[-1] = Detection(
-                keyword=last.keyword,
-                start=last.start,
-                end=max(last.end, det.end),
-                score=max(last.score, det.score),
+        while remaining:
+            best = remaining.pop(0)
+
+            overlapping = [d for d in remaining if _iou(best, d) > iou_threshold]
+            remaining = [d for d in remaining if _iou(best, d) <= iou_threshold]
+
+            span_start = min([best.start] + [d.start for d in overlapping])
+            span_end = max([best.end] + [d.end for d in overlapping])
+
+            kept.append(
+                Detection(
+                    keyword=keyword,
+                    start=round(span_start, 3),
+                    end=round(span_end, 3),
+                    score=best.score,
+                )
             )
-        else:
-            merged.append(det)
 
-    return merged
+    return sorted(kept, key=lambda d: (d.keyword, d.start))

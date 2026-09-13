@@ -50,7 +50,8 @@ majority-vote smoothing across neighboring windows
 drop windows below --threshold confidence, and any window
 predicted as a background/negative class
     ▼
-merge adjacent same-label windows into a single detection span
+non-max suppression: per keyword, cluster overlapping windows
+around their top-score window into a single detection span
 ```
 
 ## Project structure
@@ -151,6 +152,7 @@ Useful flags on `detect`:
 | `--hop_seconds` | `0.25` | how far the sliding window moves each step (smaller = finer localization, more compute) |
 | `--smoothing_radius` | `2` | majority-vote smoothing over this many neighboring windows, to reduce flicker |
 | `--batch_size` | `8` | how many sliding windows to embed per backbone forward pass |
+| `--iou_threshold` | `0.3` | overlap (intersection-over-union) required to cluster a window into an existing detection during non-max suppression |
 | `--device` | `cpu` | try `mps` on Apple Silicon once `cpu` works |
 
 ## Fixed since V1
@@ -197,6 +199,20 @@ stays the backbone.
   sizes. `--batch_size` is exposed as a flag precisely because this sweet
   spot is hardware/library-dependent — 8 is a safe default measured on this
   machine, not a universal optimum.
+- **Real non-max suppression instead of naive adjacent-merge.** The old
+  `merge_adjacent()` grouped windows purely by `start <= last.end +
+  gap_tolerance`, with no regard for confidence or actual overlap — so two
+  genuinely separate occurrences of a keyword close together in time could
+  get fused into one giant span. Confirmed on our own `query.wav`: windows
+  19.5-21.25s and 21.25-22.75s are two distinct "hello" clusters with three
+  consecutive high-confidence *negative* windows in between (20.5-22.0s),
+  but the old merge reported them as a single 19.5-22.8s span. The new
+  `non_max_suppress()` sorts windows per keyword by score, and greedily
+  builds a cluster around each top-scoring window using real
+  intersection-over-union (`--iou_threshold` default `0.3`), so a
+  confidence dip between two occurrences is what separates them instead
+  of a fixed time gap. On `query.wav` this now correctly reports the two
+  "hello"s above as separate detections.
 
 ## CLI UX improvements
 
@@ -275,8 +291,6 @@ pick the same one your terminal uses (check with `which python3`), then
 
 ## Roadmap (post-V1)
 
-- Non-max suppression instead of simple adjacent-merge, for cleaner
-  overlapping detections.
 - Benchmark CPU vs MPS inference latency/throughput on Apple Silicon.
 - Multi-keyword support tested end-to-end (currently only tested with
   one keyword + one negative class).

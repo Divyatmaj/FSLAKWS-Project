@@ -34,6 +34,7 @@ class FSLAKWS:
         hop_seconds: float = 0.25,
         smoothing_radius: int = 2,
         batch_size: int = 8,
+        iou_threshold: float = 0.3,
         **keyword_examples,
     ):
         """Detect keywords using folder or ad-hoc examples."""
@@ -56,6 +57,7 @@ class FSLAKWS:
             hop_seconds=hop_seconds,
             smoothing_radius=smoothing_radius,
             batch_size=batch_size,
+            iou_threshold=iou_threshold,
         )
 
         if not detections:
