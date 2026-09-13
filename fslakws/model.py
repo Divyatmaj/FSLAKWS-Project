@@ -48,12 +48,12 @@ def build_support_set(
     return plix_util.batch_device(support, device=device)
 
 
-def build_query_from_tensor(
-    audio_chunk: torch.Tensor,
+def build_query_batch(
+    audio_chunks: list[torch.Tensor],
     device: str = "cpu",
 ) -> dict:
-    """Build a PLiX query from a preprocessed 1-second waveform."""
-    audio_batched = audio_chunk.unsqueeze(0).unsqueeze(0)
+    """Build a single batched PLiX query from many 1-second waveforms."""
+    audio_batched = torch.stack(audio_chunks).unsqueeze(1)
     query = {"audio": audio_batched}
 
     return plix_util.batch_device(query, device=device)
@@ -77,13 +77,13 @@ def compute_prototypes(
     return grouped.mean(dim=1)
 
 
-def predict_from_prototypes(
+def predict_batch_from_prototypes(
     fws_model,
     prototypes: torch.Tensor,
     query: dict,
     classes: list[str],
-) -> dict:
-    """Predict a query using class prototypes and return confidence scores."""
+) -> list[dict]:
+    """Predict a batch of queries in one forward pass and return confidence scores."""
     with torch.no_grad():
         query_embeddings = fws_model.backbone(query["audio"])
 
@@ -96,11 +96,14 @@ def predict_from_prototypes(
         logits = -(distances ** 2)
         probs = torch.softmax(logits, dim=1)
 
-    label_index = int(torch.argmax(probs, dim=1)[0].item())
+    label_indices = torch.argmax(probs, dim=1).tolist()
 
-    return {
-        "label_index": label_index,
-        "label": classes[label_index],
-        "scores": probs[0].tolist(),
-    }
+    return [
+        {
+            "label_index": label_index,
+            "label": classes[label_index],
+            "scores": probs[i].tolist(),
+        }
+        for i, label_index in enumerate(label_indices)
+    ]
 

@@ -150,6 +150,7 @@ Useful flags on `detect`:
 | `--threshold` | `0.5` | minimum confidence (0-1) a window's top class must reach to be reported |
 | `--hop_seconds` | `0.25` | how far the sliding window moves each step (smaller = finer localization, more compute) |
 | `--smoothing_radius` | `2` | majority-vote smoothing over this many neighboring windows, to reduce flicker |
+| `--batch_size` | `8` | how many sliding windows to embed per backbone forward pass |
 | `--device` | `cpu` | try `mps` on Apple Silicon once `cpu` works |
 
 ## Fixed since V1
@@ -179,6 +180,23 @@ backbone was trained end-to-end with an episodic few-shot loss
 specifically to make the prototype-then-distance scheme work; generic
 pretrained embeddings aren't optimized for that geometry. Reverted — PLiX
 stays the backbone.
+
+- **Query windows are now embedded in batches instead of one at a time.**
+  `detect()` used to call `fws_model.backbone(...)` separately for every
+  single sliding window (~100+ calls for a 37s clip) — the same
+  one-at-a-time pattern the support set used to have before it was fixed
+  to embed once per run. Now windows are grouped into fixed-size batches
+  (`--batch_size`, default 8) and each batch runs through the backbone in
+  one forward pass (`model.build_query_batch` / `predict_batch_from_prototypes`),
+  cutting real end-to-end wall time roughly in half on our test clip on CPU.
+  We first tried embedding *all* windows in one giant batch (no chunking at
+  all) expecting an even bigger win — measured instead, on this CPU, it was
+  slower than the original one-at-a-time loop, and past a certain batch size
+  (16 on our machine) it fell off a cliff to ~3x slower than the loop, likely
+  a threading/cache effect inside PyTorch's CPU conv kernels at larger batch
+  sizes. `--batch_size` is exposed as a flag precisely because this sweet
+  spot is hardware/library-dependent — 8 is a safe default measured on this
+  machine, not a universal optimum.
 
 ## CLI UX improvements
 

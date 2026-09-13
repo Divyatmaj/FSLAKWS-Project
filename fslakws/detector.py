@@ -49,6 +49,7 @@ def detect(
     threshold: float = 0.5,
     hop_seconds: float = 0.25,
     smoothing_radius: int = 2,
+    batch_size: int = 8,
     background_labels: tuple[str, ...] = ("negative", "background"),
 ) -> list[Detection]:
     """
@@ -93,20 +94,22 @@ def detect(
 
     raw_results: list[dict] = []
 
-    for window in windows:
-        query = model_mod.build_query_from_tensor(
-            window["audio"],
+    for i in range(0, len(windows), batch_size):
+        chunk = windows[i:i + batch_size]
+
+        query_batch = model_mod.build_query_batch(
+            [window["audio"] for window in chunk],
             device=device,
         )
 
-        result = model_mod.predict_from_prototypes(
-            fws_model,
-            prototypes,
-            query,
-            support["classes"],
+        raw_results.extend(
+            model_mod.predict_batch_from_prototypes(
+                fws_model,
+                prototypes,
+                query_batch,
+                support["classes"],
+            )
         )
-
-        raw_results.append(result)
 
     raw_labels = [result["label"] for result in raw_results]
 

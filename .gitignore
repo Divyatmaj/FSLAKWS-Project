@@ -27,3 +27,4 @@ models/
 # --- Editor / OS junk ---
 .DS_Store
 .vscode/
+.claude/
